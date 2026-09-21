@@ -1,0 +1,18 @@
+IO_LOC  "pad_clk_27Mhz" 52;
+IO_PORT "pad_clk_27Mhz" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+
+IO_LOC  "pad_leds[0]"   13;
+IO_PORT "pad_leds[0]"   PULL_MODE=UP DRIVE=8;
+IO_LOC  "pad_leds[1]"   14;
+IO_PORT "pad_leds[1]"   PULL_MODE=UP DRIVE=8;
+IO_LOC  "pad_leds[2]"   15;
+IO_PORT "pad_leds[2]"   PULL_MODE=UP DRIVE=8;
+IO_LOC  "pad_leds[3]"   16;
+IO_PORT "pad_leds[3]"   PULL_MODE=UP DRIVE=8;
+IO_LOC  "pad_leds[4]"   19;
+IO_PORT "pad_leds[4]"   IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC  "pad_leds[5]"   20;
+IO_PORT "pad_leds[5]"   IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+
+IO_LOC  "button"        3;
+IO_PORT "button"        PULL_MODE=UP;
