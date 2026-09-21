@@ -10,9 +10,11 @@ module top(
     MEM:
     00000 ADDR     - CLEAR
     00001 REG      - STORE 
+    00101          - UNLOCK STORE
     00010 REG      - LOAD
     00011 ADDR     - SET ADDR
     00100          - SWITCH A->B B->A
+    00111 REG 8bit - SET REG=<8bit>
     
     MATH
     01000          - ADD REGISTERS -> A B=0
@@ -27,18 +29,28 @@ module top(
     EXTRA
     11000 8bit     - JMP 7bit
     11001          - PUSH LED WITH CURRENT ADDR
-    TODO: 11011 8bit     - WAIT <8bit> ms 
+    11011 15bit     - WAIT <15bit> ms (MAX:32767)
     */
 
+
+    // flashing animation
     logic [19:0] commands[256] = '{
-        0: 20'b00011_00000000_0000000,     // SET ADDR -> 0
-        1: 20'b00010_0_00000000000000,    // LOAD TO A
-        2: 20'b10010_0_0000000000_0000,   // A = !A
+        0: 20'b00011_00000000_0000000,    // SET ADDR -> 0
+        1: 20'b00111_0_00101010_000000,   // set A=0b00101010
+        2: 20'b00101_000000000000000,     // UNLOCK STORE
         3: 20'b00001_0_00000000000000,    // STORE A 
         4: 20'b11001_000000000000000,     // UPDATE LEDS
-        5: 20'b11000_00000000_0000000,    //  JMP TO START
+        5: 20'b00010_0_00000000000000,    // LOAD TO A
+        6: 20'b10010_0_0000000000_0000,   // A = !A
+        7: 20'b00101_000000000000000,     // UNLOCK STORE
+        8: 20'b00001_0_00000000000000,    // STORE A 
+        9: 20'b11001_000000000000000,     // UPDATE LEDS
+        10: 20'b11011_000000011111010,     // WAIT 250ms
+        11: 20'b11000_00000101_0000000,    //  JMP TO START
         default: 20'b0000_0000_0000_0000_0000
     };
+
+
     
     logic [7:0] reg_a, reg_b, reg_res;
     logic [7:0] programCounter = 0;
@@ -47,10 +59,10 @@ module top(
     
 
     logic [7:0] mem[0:2047] = '{
-        0: 8'b00_101010, // SET LEDS
+        0: 8'b00_000000, // SET LEDS
         default: 8'b0000_0000
     };
-    logic mem_we;
+    logic mem_we = 0;
     logic [10:0] mem_addr;
     logic [7:0] mem_in; 
     logic [7:0] mem_out;
@@ -59,21 +71,15 @@ module top(
         if (mem_we) mem[mem_addr] <= mem_in;
     end
 
-    logic [7:0] led_reg = 6'b101010;
+    logic [7:0] led_reg = 6'b000000;
     assign pad_leds = led_reg;
 
-    logic [24:0] clk = 0;
-    logic [1:0] doop = 0; // for jump instructions(to be removed along clk later)
+    logic [32:0] clk = 0;
+    logic waiting = 0;
 
     always_ff @(posedge pad_clk_27Mhz) begin
-        clk <= clk+1;
-        mem_we <= 1'b0;
-        
-        
-
-        if ((button == 1 && clk > 25'd6_750_000) || doop == 1'b1) begin // if button isnt pressed and clock ticks (every 0.25s)
-            clk <= 0;
-            doop <= 0;
+        // mem_we <= 1'b0;
+        if ((button == 1)) begin // if button isnt pressed and clock ticks (every 0.25s)
             if (programCounter != 255) begin 
                 programCounter <= programCounter + 1;
             end
@@ -85,8 +91,11 @@ module top(
                     mem_in <= 0;
                 end
                 5'b00001: begin // STORE
-                    mem_we <= 1'b1;
                     mem_in <= (commands[programCounter][14] == 0) ? reg_a : reg_b;
+                    mem_we <= 1'b0; // close the write behind
+                end
+                5'b00101: begin // UNLOCK STORE
+                    mem_we <= 1'b1; // open the write
                 end
                 5'b00010: begin // LOAD
                     if (commands[programCounter][14] == 0) // REG A
@@ -100,6 +109,12 @@ module top(
                 5'b00100: begin // SWITCH
                     reg_a <= reg_b;
                     reg_b <= reg_a;
+                end
+                5'b00111: begin // SET REG
+                    if (commands[programCounter][14] == 0) // REG A
+                        reg_a <= commands[programCounter][13:6];
+                    else // REG B
+                        reg_b <= commands[programCounter][13:6];
                 end
 
                 5'b01000: begin // ADD
@@ -138,7 +153,14 @@ module top(
                 5'b11001: begin // PUSH LED
                     led_reg <= mem_out[5:0];
                 end
-
+                5'b11011: begin // WAIT
+                    if (clk < commands[programCounter][14:0]*27000) begin
+                        clk <= clk + 1;
+                        programCounter <= programCounter; // override program counter
+                    end else begin
+                        clk <= 0;
+                    end
+                end
                 default: ;
             endcase
         end
