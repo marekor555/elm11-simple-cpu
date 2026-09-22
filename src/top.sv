@@ -5,20 +5,18 @@ module top(
 );
     /*
     REG: (A: 0, B: 1)
-    ADDR: 10 bits
+    ADDR: 11 bits
     
     MEM:
-    00000 ADDR     - CLEAR
     00001 REG      - STORE 
-    00101          - UNLOCK STORE
     00010 REG      - LOAD
     00011 ADDR     - SET ADDR
     00100          - SWITCH A->B B->A
     00111 REG 8bit - SET REG=<8bit>
     
     MATH
-    01000          - ADD REGISTERS -> A B=0
-    01001          - SUBTRACT REGISTERS A-B -> A B=0 
+    01000          - ADD REGISTERS -> A+B -> A
+    01001          - SUBTRACT REGISTERS A-B -> A 
     
     BOOL LOGIC
     10000          - OR ->  A || B B=0
@@ -27,81 +25,77 @@ module top(
     10011          - IF A -> JMP B
 
     EXTRA
-    11000 8bit     - JMP 7bit
-    11001          - PUSH LED WITH CURRENT ADDR
+    11000 8bit     - JMP 8bit
     11011 15bit     - WAIT <15bit> ms (MAX:32767)
     */
 
 
-    // flashing animation
+    // // flashing animation
+    // logic [19:0] commands[256] = '{
+    //     0: 20'b00011_00000000_0000000,    // SET ADDR -> 0
+    //     1: 20'b00111_0_00101010_000000,   // set A=0b00101010
+    //     2: 20'b00101_000000000000000,     // UNLOCK STORE
+    //     3: 20'b00001_0_00000000000000,    // STORE A 
+    //     4: 20'b00010_0_00000000000000,    // LOAD TO A
+    //     5: 20'b10010_0_0000000000_0000,   // A = !A
+    //     6: 20'b00101_000000000000000,     // UNLOCK STORE
+    //     7: 20'b00001_0_00000000000000,    // STORE A 
+    //     8: 20'b11011_000000011111010,     // WAIT 250ms
+    //     9: 20'b11000_00000100_0000000,    //  JMP TO START
+    //     default: 20'b0000_0000_0000_0000_0000
+    // };
+
+    // // debug
+    // logic [19:0] commands[256] = '{
+    //     0: 20'b00011_00000000_0000000,    // SET ADDR -> 0
+    //     1: 20'b00111_0_00111100_000000,   // set A=0b00111111
+    //     3: 20'b00001_0_00000000000000,    // STORE A 
+    //     4: 20'b11011_000000011111010,     // WAIT 250ms
+    //     5: 20'b11000_00000100_0000000,    //  JMP TO WAIT
+    //     default: 20'b0000_0000_0000_0000_0000
+    // };
+
     logic [19:0] commands[256] = '{
-        0: 20'b00011_00000000_0000000,    // SET ADDR -> 0
-        1: 20'b00111_0_00101010_000000,   // set A=0b00101010
-        2: 20'b00101_000000000000000,     // UNLOCK STORE
-        3: 20'b00001_0_00000000000000,    // STORE A 
-        4: 20'b11001_000000000000000,     // UPDATE LEDS
-        5: 20'b00010_0_00000000000000,    // LOAD TO A
-        6: 20'b10010_0_0000000000_0000,   // A = !A
-        7: 20'b00101_000000000000000,     // UNLOCK STORE
-        8: 20'b00001_0_00000000000000,    // STORE A 
-        9: 20'b11001_000000000000000,     // UPDATE LEDS
-        10: 20'b11011_000000011111010,     // WAIT 250ms
-        11: 20'b11000_00000101_0000000,    //  JMP TO START
-        default: 20'b0000_0000_0000_0000_0000
+        0: 20'b00011_00000000_0000000,  // ADDR=0
+        1: 20'b00111_0_00000000_000000, // A = 0
+        2: 20'b00111_1_00000001_000000, // B = 1
+        3: 20'b01000_000000000000000,   // A = A + B
+        4: 20'b00001_0_00000000000000,  // STORE A -> mem[0]
+        5: 20'b11011_000000011111010,   // WAIT 250ms
+        6: 20'b11000_00000011_0000000,  // JMP 3
+
+        default: 20'b00000_000000000000000
     };
-
-
     
-    logic [7:0] reg_a, reg_b, reg_res;
+    logic [7:0] reg_a = 0, reg_b = 0;
     logic [7:0] programCounter = 0;
-    
-
-    
+    logic [7:0] next_PC;
 
     logic [7:0] mem[0:2047] = '{
         0: 8'b00_000000, // SET LEDS
         default: 8'b0000_0000
     };
-    logic mem_we = 0;
-    logic [10:0] mem_addr;
-    logic [7:0] mem_in; 
-    logic [7:0] mem_out;
-    assign mem_out = mem[mem_addr];
-    always_ff @(posedge pad_clk_27Mhz) begin
-        if (mem_we) mem[mem_addr] <= mem_in;
-    end
 
-    logic [7:0] led_reg = 6'b000000;
-    assign pad_leds = led_reg;
+    logic [10:0] mem_addr = 0;
+
+    assign pad_leds = ~mem[0][5:0];
+    // assign pad_leds = reg_a[5:0];
+    // assign pad_leds = programCounter[5:0];
 
     logic [32:0] clk = 0;
     logic waiting = 0;
 
     always_ff @(posedge pad_clk_27Mhz) begin
-        // mem_we <= 1'b0;
-        if ((button == 1)) begin // if button isnt pressed and clock ticks (every 0.25s)
-            if (programCounter != 255) begin 
-                programCounter <= programCounter + 1;
-            end
-
+            next_PC = programCounter + 1;
             case (commands[programCounter][19:15]) // check commands and execute the command
-                5'b00000: begin // CLEAR
-                    mem_we <= 1'b1;
-                    mem_addr <= commands[programCounter][14:4];
-                    mem_in <= 0;
-                end
                 5'b00001: begin // STORE
-                    mem_in <= (commands[programCounter][14] == 0) ? reg_a : reg_b;
-                    mem_we <= 1'b0; // close the write behind
-                end
-                5'b00101: begin // UNLOCK STORE
-                    mem_we <= 1'b1; // open the write
+                    mem[mem_addr] <= (commands[programCounter][14] == 0) ? reg_a : reg_b;
                 end
                 5'b00010: begin // LOAD
                     if (commands[programCounter][14] == 0) // REG A
-                        reg_a <= mem_out;
+                        reg_a <= mem[mem_addr];
                     else // REG B
-                        reg_b <= mem_out;
+                        reg_b <= mem[mem_addr];
                 end
                 5'b00011: begin // SET ADDR
                     mem_addr <= commands[programCounter][14:4];
@@ -119,11 +113,11 @@ module top(
 
                 5'b01000: begin // ADD
                     reg_a <= reg_a + reg_b;
-                    reg_b <= 0;
+                    // reg_b <= 0;
                 end
                 5'b01001: begin // SUBSTRACT
                     reg_a <= reg_a - reg_b;
-                    reg_b <= 0;
+                    // reg_b <= 0;
                 end
 
                 5'b10000: begin // OR
@@ -143,27 +137,23 @@ module top(
 
                 5'b10011: begin // IF A JMP B
                     if (reg_a) begin
-                        programCounter <= reg_b;
+                        next_PC = reg_b;
                     end
                 end
 
                 5'b11000: begin // JMP 
-                    programCounter <= commands[programCounter][14:7];
-                end
-                5'b11001: begin // PUSH LED
-                    led_reg <= mem_out[5:0];
+                    next_PC = commands[programCounter][14:7];
                 end
                 5'b11011: begin // WAIT
-                    if (clk < commands[programCounter][14:0]*27000) begin
+                    if (clk < 32'd27000 * {17'd0, commands[programCounter][14:0]}) begin
                         clk <= clk + 1;
-                        programCounter <= programCounter; // override program counter
+                        next_PC = programCounter; // override program counter
                     end else begin
                         clk <= 0;
                     end
                 end
                 default: ;
             endcase
-        end
+            programCounter <= next_PC;
     end
-    
 endmodule
