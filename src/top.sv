@@ -113,11 +113,9 @@ module top(
 
                 5'b01000: begin // ADD
                     reg_a <= reg_a + reg_b;
-                    // reg_b <= 0;
                 end
                 5'b01001: begin // SUBSTRACT
                     reg_a <= reg_a - reg_b;
-                    // reg_b <= 0;
                 end
 
                 5'b10000: begin // OR
@@ -132,7 +130,6 @@ module top(
 
                 5'b10010: begin // NOT
                     reg_a <= ~reg_a;
-                    reg_b <= 0;
                 end
 
                 5'b10011: begin // IF A JMP B
