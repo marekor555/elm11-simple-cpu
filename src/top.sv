@@ -4,6 +4,7 @@ module top(
     output logic [5:0] pad_leds
 );
     /*
+    more technical table of registers, also much more useful(hopefully)
     REG: (A: 0, B: 1)
     ADDR: 11 bits
     
@@ -21,8 +22,9 @@ module top(
     BOOL LOGIC
     10000          - OR ->  A || B B=0
     10001          - AND -> A && B B=0
-    10010          - NOT -> A =! A
+    10010          - NOT -> A = ~A
     10011          - IF A -> JMP B
+    10111 <8bit>   - IF A = <8bit> -> JMP B
 
     EXTRA
     11000 8bit     - JMP 8bit
@@ -30,7 +32,9 @@ module top(
     */
 
 
-    // // flashing animation
+    
+
+    // very simple flashing animation
     // logic [19:0] commands[256] = '{
     //     0: 20'b00011_00000000_0000000,    // SET ADDR -> 0
     //     1: 20'b00111_0_00101010_000000,   // set A=0b00101010
@@ -45,24 +49,23 @@ module top(
     //     default: 20'b0000_0000_0000_0000_0000
     // };
 
-    // // debug
-    // logic [19:0] commands[256] = '{
-    //     0: 20'b00011_00000000_0000000,    // SET ADDR -> 0
-    //     1: 20'b00111_0_00111100_000000,   // set A=0b00111111
-    //     3: 20'b00001_0_00000000000000,    // STORE A 
-    //     4: 20'b11011_000000011111010,     // WAIT 250ms
-    //     5: 20'b11000_00000100_0000000,    //  JMP TO WAIT
-    //     default: 20'b0000_0000_0000_0000_0000
-    // };
-
+    // the animation from the README
     logic [19:0] commands[256] = '{
-        0: 20'b00011_00000000_0000000,  // ADDR=0
-        1: 20'b00111_0_00000000_000000, // A = 0
-        2: 20'b00111_1_00000001_000000, // B = 1
-        3: 20'b01000_000000000000000,   // A = A + B
-        4: 20'b00001_0_00000000000000,  // STORE A -> mem[0]
-        5: 20'b11011_000000011111010,   // WAIT 250ms
-        6: 20'b11000_00000011_0000000,  // JMP 3
+        0:  20'b00011_00000000_0000000,   // ADDR=0
+        1:  20'b00111_0_00000000_000000,  // A = 0
+        2:  20'b00111_1_00000001_000000,  // B = 1
+        3:  20'b01000_000000000000000,    // A = A + B
+        4:  20'b00001_0_00000000000000,   // STORE A -> mem[0]
+        5:  20'b11011_000000001100100,    // WAIT 100ms
+        6:  20'b00111_1_00001001_000000,  // B = 9
+        7:  20'b10111_00111111_0000000,   // IF A = 0b00111111 JMP B(9)
+        8:  20'b11000_00000010_0000000,   // JMP 2
+
+        9:  20'b00111_0_00000000_000000,  // A = 0
+        10: 20'b00001_0_00000000000000,   // STORE A -> mem[0]
+        11: 20'b10010_000000000000000,    // A = ~A
+        12: 20'b11011_000000011111010,    // WAIT 250ms
+        13: 20'b11000_00001010_0000000,   // JMP 10
 
         default: 20'b00000_000000000000000
     };
@@ -71,44 +74,61 @@ module top(
     logic [7:0] programCounter = 0;
     logic [7:0] next_PC;
 
-    logic [7:0] mem[0:2047] = '{
-        0: 8'b00_000000, // SET LEDS
-        default: 8'b0000_0000
-    };
-
+    /* syn_ramstyle = "block" */ logic [7:0] mem[0:2047];
+    initial begin
+        mem = '{default: 8'h00};
+    end
     logic [10:0] mem_addr = 0;
 
-    assign pad_leds = ~mem[0][5:0];
-    // assign pad_leds = reg_a[5:0];
-    // assign pad_leds = programCounter[5:0];
-
-    logic [32:0] clk = 0;
+    // for WAIT
+    logic [32:0] waitClk = 0;
     logic waiting = 0;
 
+    // anti lag for commands and mem to set in after each command
+    // for some reason there needs to be a 1 tick delay after each command
+    logic cpuState = 1;
+    logic [4:0] command = 0;
+    logic [14:0] rest = 0;
+
+
+    // this is required so that mem synths into the more optimized RAM 
+    logic [5:0] led_reg = 0;
+    assign pad_leds = ~led_reg;
+
+
     always_ff @(posedge pad_clk_27Mhz) begin
+        if (cpuState == 1) begin
+            // Cut out the command into parts
+            // This also fixes a delay problem with commands memory
+            command <= commands[programCounter][19:15];
+            rest <= commands[programCounter][14:0];
+            cpuState <= 0;
+
+            led_reg <= mem[0][5:0]; // set leds
+        end else begin
             next_PC = programCounter + 1;
-            case (commands[programCounter][19:15]) // check commands and execute the command
+            case (command) // check commands and execute the command
                 5'b00001: begin // STORE
-                    mem[mem_addr] <= (commands[programCounter][14] == 0) ? reg_a : reg_b;
+                    mem[mem_addr] <= (rest[14] == 0) ? reg_a : reg_b;
                 end
                 5'b00010: begin // LOAD
-                    if (commands[programCounter][14] == 0) // REG A
+                    if (rest[14] == 0) // REG A
                         reg_a <= mem[mem_addr];
                     else // REG B
                         reg_b <= mem[mem_addr];
                 end
                 5'b00011: begin // SET ADDR
-                    mem_addr <= commands[programCounter][14:4];
+                    mem_addr <= rest[14:4];
                 end
                 5'b00100: begin // SWITCH
                     reg_a <= reg_b;
                     reg_b <= reg_a;
                 end
                 5'b00111: begin // SET REG
-                    if (commands[programCounter][14] == 0) // REG A
-                        reg_a <= commands[programCounter][13:6];
+                    if (rest[14] == 0) // REG A
+                        reg_a <= rest[13:6];
                     else // REG B
-                        reg_b <= commands[programCounter][13:6];
+                        reg_b <= rest[13:6];
                 end
 
                 5'b01000: begin // ADD
@@ -137,20 +157,27 @@ module top(
                         next_PC = reg_b;
                     end
                 end
-
+                5'b10111: begin // IF A=<8bit> JMP B
+                    if (reg_a == rest[14:7]) begin
+                        next_PC = reg_b;
+                    end
+                end
                 5'b11000: begin // JMP 
-                    next_PC = commands[programCounter][14:7];
+                    next_PC = rest[14:7];
                 end
                 5'b11011: begin // WAIT
-                    if (clk < 32'd27000 * {17'd0, commands[programCounter][14:0]}) begin
-                        clk <= clk + 1;
+                    // half of the cycles eaten by waiting so it is 13500
+                    if (waitClk < 32'd13500 * {17'd0, rest[14:0]}) begin 
+                        waitClk <= waitClk + 1;
                         next_PC = programCounter; // override program counter
                     end else begin
-                        clk <= 0;
+                        waitClk <= 0;
                     end
                 end
                 default: ;
             endcase
             programCounter <= next_PC;
+            cpuState <= 1;
+        end
     end
 endmodule
