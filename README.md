@@ -49,7 +49,7 @@ Unused opcodes currently behave as NOPs, you *can* just leave nothing on a line,
 
 ## Example Program
 
-The current test program increments a value once every 100 ms and stores it in memory location `0`, when it reaches a point where every led is lit, it goes to flashing all of them forever:
+The current test program increments a value once every 100 ms and stores it in memory location `0`, when it reaches a point where every led is lit, it goes flash all of them and repeat everything:
 
 ```text
 0:  SET ADDR 0
@@ -63,11 +63,16 @@ The current test program increments a value once every 100 ms and stores it in m
 7:  IF A = 63 JMP B
 8:  JMP 3
 
-9:  SET A = 0
-10: STORE A
-11: A = ~A
-12: WAIT 250 mms
-13: JMP 10
+9:  A = 0
+10: STORE A -> mem[0]
+12: WAIT 1s
+13: A = ~A
+14: STORE A -> mem[0]
+15: WAIT 1s
+16: A = ~A
+17: STORE A -> mem[0]
+18: WAIT 1s
+19: JMP 1
 ```
 
 with the value written to `mem[0]`.
